@@ -1,0 +1,17 @@
+Package: project
+Title: Simulation of Multiserver
+Version: 0.0.0.9000
+Authors@R: 
+    person("Eldor", "Rakhmonaliev", , "eldor.rakhmonaliev@students.mq.edu.au", role = c("aut", "cre"))
+Description: Provides a function to simulate customer transitions in a multiserver queue system.
+License: GPL-3
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends: 
+    R (>= 3.5),
+    tibble
+Suggests: 
+    testthat (>= 3.0.0)
+LazyData: true
+Config/testthat/edition: 3

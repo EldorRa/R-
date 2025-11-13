@@ -1,0 +1,348 @@
+---
+title: "Eldor_Rakhmonaliev_48756997_Assignment2"
+format:
+  pdf:
+    citation-package: biblatex
+editor: visual
+bibliography: reference.bib
+nocite: |
+  @Downey2014
+  @Wickham2016
+  @RCoreTeam2023
+---
+```{r setup, include=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggrepel)
+library(here)
+library(readr)
+library(DBI)
+library(duckdb)
+library(dbplyr)
+library(broom)
+library(knitr)
+```
+
+## Exercise 1
+
+```{r, fig.width=8, fig.height=6}
+# Loading the dataset
+pisa <- read_csv(here("data", "pisa_2022.csv"), show_col_types = FALSE)
+
+# Plot 1 part
+pisa_avg <- pisa %>% # Calculating average rading and average math and science
+  group_by(country) %>% # Group by country column
+  summarise( # Summarise to be more efficient to find averages
+    mean_math = mean(math, na.rm = TRUE),
+    mean_read = mean(read, na.rm = TRUE),
+    mean_science = mean(science, na.rm = TRUE),
+    .groups = "drop" # Dropping the groubby after calculating 
+  ) %>%
+  mutate(country = toupper(country))
+
+# Creating the graph for first plot
+ggplot() +
+  geom_point(data = pisa_avg %>% filter(country != "AUS"), 
+             aes(x = mean_math, y = mean_read, color = mean_science),
+             size = 2, alpha = 0.7) +
+  geom_point(data = pisa_avg %>% filter(country == "AUS"),  # If country AUS then change the color to yellow
+             aes(x = mean_math, y = mean_read), 
+             size = 2, alpha = 0.7, color = "#F3C623") +
+  geom_label_repel(data = pisa_avg, 
+                   aes(x = mean_math, y = mean_read, label = country), 
+                   max.overlaps = 100, size = 3) +
+  geom_label_repel(data = pisa_avg %>% filter(country == "AUS"), # If country AUS then change the color to yellow
+                   aes(x = mean_math, y = mean_read, label = country), 
+                   color = "#F3C623", max.overlaps = 100, size = 3) +
+  scale_color_gradient(low = "#708993", high = "#A1C2BD", # This row means coloring all other country and dots except AUS
+                       name = "Mean Science Scores") +
+  labs(
+    title = "Average reading against average maths for each country",
+    subtitle = "Any guesses on where Australia ranks?",
+    x = "Mean Scores in Mathematics", # X label
+    y = "Mean Reading Scores" # Y label
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(margin = margin(t = 10)), # Creating space between label x and graph 
+    axis.title.y = element_text(margin = margin(r = 10))) # Creating space between label y and graph 
+
+# Plot 2 part
+pisa_gender <- pisa %>%
+  group_by(country, gender) %>% # Groupby by Country and Gender
+  summarise(across(c(math, read, science), \(x) mean(x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  pivot_wider(names_from = gender, values_from = c(math, read, science)) %>%
+  mutate( # Mutate and adding new columns
+    diff_math = math_female - math_male,
+    diff_read = read_female - read_male,
+    diff_sci  = science_female - science_male
+  ) %>%
+  pivot_longer(starts_with("diff_"), names_to = "subject", values_to = "diff") %>%
+  mutate(
+    subject = recode(subject,
+                     diff_math = "mean_math",
+                     diff_read = "mean_read",
+                     diff_sci  = "mean_sci"),
+    diff_pos = diff > 0
+  )
+
+# Creating the graph for second plot
+ggplot(pisa_gender, aes(x = diff, y = reorder(country, diff), color = diff_pos)) +
+  geom_vline(xintercept = 0, color = "gray50") +
+  geom_point(size = 2) +
+  facet_grid(. ~ subject, scales = "free_x", space = "free_x") +
+  scale_x_continuous(
+    limits = c(-60, 60),
+    breaks = seq(-60, 60, by = 30)
+  ) +
+  scale_color_manual(values = c("FALSE" = "#F8766D", "TRUE" = "#00BFC4")) +
+  labs(
+    title = "Average gender difference (female - male) per Country",
+    subtitle = "Gender gap in reading is universal, but math and science gaps are not.",
+    x = "Difference", y = "Country", color = "diff > 0" # X and Y labels
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.title.x = element_text(margin = margin(t = 10)),  # Creating space between label x and graph   
+    axis.title.y = element_text(margin = margin(r = 10))) # Creating space between label y and graph 
+```
+
+## Exercise 2
+
+```{r,fig.width=7, fig.height=5, warning = FALSE}
+# Loading the dataset
+aus_price <- read_csv(here("data", "aus_median_house_price.csv"), show_col_types = FALSE)
+gdp_changes <- read_csv(here("data", "aus_GDP_changes.csv"), show_col_types = FALSE)
+
+# Correction the house data
+aus_price_clean <- aus_price %>% # Manipulating the dataset
+  select(Melbourne_Median_Price = `Median Price of Established House Transfers (Unstratified) ;  Melbourne ;`) %>%
+  mutate(Melbourne_Median_Price = as.numeric(Melbourne_Median_Price)) %>% # Mutating the column into numeric
+  filter(!is.na(Melbourne_Median_Price)) %>% # Filtering column
+  mutate(
+    Time_Period = row_number(),
+    Year = 2000 + (Time_Period - 1) * 0.25  # Assuming quarterly data starting from 2000
+  )
+
+# Plot 1
+ggplot(aus_price_clean, aes(x = Year, y = Melbourne_Median_Price)) + # Creating graph
+  geom_line(color = "blue") +
+  labs(
+    title = "Median Price of Established House Transfers in Melbourne", # Title of the plot
+    subtitle = "Unstratified & not seasonally adjusted",
+    x = NULL, # X label name
+    y = "A$ ('000)", # Y label name
+    caption = "Source: ABS"
+  ) +
+  scale_x_continuous(breaks = seq(2005, 2020, 5)) + # Sequence of X label
+  scale_y_continuous(breaks = seq(300, 900, 100)) + # Sequence of Y label
+  coord_cartesian(xlim = c(2002, NA), ylim = c(250, 950)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"), # Making bold text for title
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "white", linewidth = 0.8), # Color of background line
+    panel.background = element_rect(fill = "grey92", color = NA), # Panel background color
+    plot.background = element_rect(fill = "white", color = NA) # Plot background color
+  )
+
+# Finding low GDP growth (GDP change < 0.1%)
+low_gdp <- gdp_changes %>%
+  mutate( 
+    GDP_changes = as.numeric(GDP_changes), # Mutating column into numeric
+    Time_Period = row_number()
+  ) %>%
+  mutate(low_gdp_growth = GDP_changes < 0.1) %>%
+  filter(Time_Period <= nrow(aus_price_clean)) %>%
+  mutate(Year = 2000 + (Time_Period - 1) * 0.25)
+
+# Finding periods
+low_gdp_periods <- low_gdp %>%
+  filter(low_gdp_growth) %>%
+  arrange(Time_Period) %>%
+  mutate(
+    gap = c(1, diff(Time_Period)),
+    new_group = gap > 1
+  ) %>%
+  mutate(group = cumsum(new_group)) %>%
+  group_by(group) %>%
+  summarise(
+    xmin = min(Year),
+    xmax = max(Year) + 0.25,
+    n_quarters = n(),
+    .groups = "drop"
+  ) %>%
+  filter(n_quarters >= 2)  # Shows period of 2 consecutive quarters
+
+# Plot 2
+ggplot(aus_price_clean, aes(x = Year, y = Melbourne_Median_Price)) + # Creating plot
+  geom_rect(
+    data = low_gdp_periods,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    fill = "grey70",
+    alpha = 0.5,
+    inherit.aes = FALSE
+  ) +
+  geom_line(color = "blue") + # Color of the line in the graph
+  labs(
+    title = "Median Price of Established House Transfers in Melbourne", # Title of the graph
+    subtitle = "Unstratified & not seasonally adjusted",
+    x = NULL, # X label name
+    y = "A$ ('000)", # Y label name
+    caption = "Shaded areas indicate GDP increased less than 0.1% in that quarter.\nSources: ABS"
+  ) +
+  scale_x_continuous(breaks = seq(2005, 2020, 5)) + # Sequence of X label
+  scale_y_continuous(breaks = seq(300, 900, 100)) + # Sequence of Y lalbel
+  coord_cartesian(xlim = c(2002, NA), ylim = c(250, 950)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"), # Making bold text for title
+    panel.grid.minor = element_blank(), 
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey92", linewidth = 0.8), # Color of background line
+    panel.background = element_rect(fill = "white", color = NA), # Panel background color
+    plot.background = element_rect(fill = "white", color = NA), # Plot background color
+    plot.caption = element_text(hjust = 1, size = 6)
+  )
+```
+
+## Exercise 3
+
+```{r}
+# Creating DuckDB connection
+con <- dbConnect(duckdb::duckdb()) 
+
+# Reading csv files
+actors <- read_csv(here("data", "Actors.csv"), show_col_types = FALSE)
+castings <- read_csv(here("data", "Castings.csv"), show_col_types = FALSE)
+directors <- read_csv(here("data", "Directors.csv"), show_col_types = FALSE)
+movies <- read_csv(here("data", "Movies.csv"), show_col_types = FALSE)
+
+# Copying data to DuckDB
+dbWriteTable(con, "actors", actors)
+dbWriteTable(con, "castings", castings)
+dbWriteTable(con, "directors", directors)
+dbWriteTable(con, "movies", movies)
+
+# Creating dplyr table references
+actors_db <- tbl(con, "actors")
+castings_db <- tbl(con, "castings")
+directors_db <- tbl(con, "directors")
+movies_db <- tbl(con, "movies")
+
+# Part a
+# Identifying the most common director and 
+# actor parterships through collection total movies
+part_a <- actors_db %>%
+  semi_join(castings_db, by = "ActorID") %>%  # Keep only actors with castings
+  inner_join(castings_db, by = "ActorID") %>%  # Join to get movie associations
+  inner_join(movies_db, by = "MovieID") %>%    # Join to get movie details
+  inner_join(directors_db, by = "DirectorID") %>%  # Join to get directors
+  group_by(Actor = Name.x, Director = Name.y) %>%  # Group by partnership
+  summarise(Movies_total = n(), .groups = "drop") %>%  # Count movies per pair
+  arrange(desc(Movies_total)) %>%  # Sort by frequency
+  head(5) %>%  # Limit to top 10
+  collect
+part_a
+
+# Part b
+# Finding actors who worked with multiple workers 
+# and counting unique directors with total movies per actor
+part_b <- actors_db %>%
+  left_join(castings_db, by = "ActorID") %>%
+  left_join(movies_db, by = "MovieID") %>%
+  left_join(directors_db, by = "DirectorID") %>%
+  group_by(Name.x) %>%
+  summarise(
+    unique_directors = n_distinct(Name.y),
+    total_movies = n(),
+    .groups = "drop"
+  ) %>%
+  filter(unique_directors > 1) %>%
+  arrange(desc(unique_directors)) %>%
+  collect()
+
+part_b
+# In my opinion, the question for part b can be : 
+# Who are the most adaptable actors that can work with various directors
+# This question is more fit based on the sql query
+
+# Disconnecting from database
+dbDisconnect(con)
+```
+
+## Exercise 4
+
+### Overview
+
+```{r}
+# Creating matrix from questions example
+obs <- matrix(c(3,33,27,9), nrow = 2, byrow = TRUE,
+dimnames = list(Gender = c("Men","Women"), Status = c("Studying","Not")))
+obs
+chi <- chisq.test(obs, correct = FALSE) # Pearson's chi-squared test
+chi
+fisher <- fisher.test(obs, alternative = "two.sided") # Fisher's exact test (two-sided)
+fisher
+```
+
+
+### Simulation
+
+```{r, echo = FALSE}
+run_sim <- function(n_men, n_women, prob, n_sim = 10000) { # Function to create tables
+  chi_pvalues <- c()
+  fisher_pvalues <- c()
+  for (i in 1:n_sim) { # Lopp for table
+    repeat {
+      men_studying <- rbinom(1, n_men, prob)
+      women_studying <- rbinom(1, n_women, prob)
+      if (men_studying > 0 || women_studying > 0) {
+        break
+      }
+    }
+    men_not_studying <- n_men - men_studying
+    women_not_studying <- n_women - women_studying
+    table <- matrix(
+      c(men_studying, women_studying, men_not_studying, women_not_studying),
+      nrow = 2,
+      byrow = TRUE
+    )
+    chi_result <- suppressWarnings(chisq.test(table, correct = FALSE)) # Ignoring warnings of chi-squared test
+    chi_pvalues[i] <- chi_result$p.value
+    fisher_result <- fisher.test(table, alternative = "two.sided")
+    fisher_pvalues[i] <- fisher_result$p.value
+  }
+  data.frame(p_chi = chi_pvalues, p_fisher = fisher_pvalues)
+}
+
+settings <- tribble( # Settings for simulation
+  ~Setting, ~n_men, ~n_women, ~p,
+  "Setting 1", 20, 20, 0.2,
+  "Setting 2", 20, 20, 0.5,
+  "Setting 3", 100, 100, 0.2,
+  "Setting 4", 100, 100, 0.5
+)
+
+summary <- settings %>% # Creating summary table
+  mutate(sim = pmap(list(n_men, n_women, p), run_sim)) %>%
+  mutate(summary = map(sim, ~tibble(
+    Chi_10 = mean(.x$p_chi < 0.10, na.rm = TRUE),
+    Chi_05 = mean(.x$p_chi < 0.05, na.rm = TRUE),
+    Chi_01 = mean(.x$p_chi < 0.01, na.rm = TRUE),
+    Fish_10 = mean(.x$p_fisher < 0.10, na.rm = TRUE),
+    Fish_05 = mean(.x$p_fisher < 0.05, na.rm = TRUE),
+    Fish_01 = mean(.x$p_fisher < 0.01, na.rm = TRUE)
+  ))) %>%
+  unnest(summary) %>%
+  transmute(
+    Description = paste0(Setting, ": n = ", n_men, " men, ", n_women, " women, p = ", p), # Settings, and gender columns making one column
+    across(starts_with("Chi_") | starts_with("Fish_"), .fns = identity)
+  ) %>%
+  pivot_longer(-Description, names_to = "Test_Level", values_to = "Values") # Changing columns into rows
+
+print(summary, n = nrow(summary)) # Printing table
+```
+### Reference 
+
