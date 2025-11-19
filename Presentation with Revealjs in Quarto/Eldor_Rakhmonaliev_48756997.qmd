@@ -1,0 +1,629 @@
+---
+title: "STAT 6179 | PROJECT"
+subtitle: "Analysis of Chess Player Ratings"
+author: "Eldor Rakhmonaliev 48756997"
+institute: "Faculty of Science and Engineering"
+footer: "STAT6179 | Eldor Rakhmonaliev 48756997"
+format: 
+  mq-revealjs:
+    width: 1920
+    height: 1080
+    embed-resources: true
+bibliography: references.bib
+---
+```{r setup, echo=FALSE, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(scales)
+library(patchwork)
+library(tidyverse)
+library(plotly)
+library(htmltools)
+library(kableExtra)
+library(knitr)
+library(broom)
+library(gt)
+
+base_theme <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray50", size = 12),
+    axis.title.x = element_text(margin = margin(t = 12)),
+    axis.title.y = element_text(margin = margin(r = 12)),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1.2),
+    plot.caption = element_text(color = "gray60", size = 10)
+  )
+
+rating_august <- read_csv("fide_ratings_august.csv", show_col_types = FALSE)
+rating_september <- read_csv("fide_ratings_september.csv", show_col_types = FALSE)
+```
+
+::: {.columns .v-center-container}
+::: {.column width="35%"}
+![](https://raw.githubusercontent.com/thomas-fung/quarto-mq-revealjs-theme/main/_extensions/mq/MQ-diag-partial.png)
+:::
+<!-- 
+The above code needs an Internet connection to work. If you want to compile your work locally, a copy of the image can be found in the _extensions folder. 
+You can assessing it by adopting the following:
+![](_extensions/thomas-fung/mq/MQ-diag-partial.png) -->
+::: {.column width="60%" .top-align}
+### Content {.section-header-text}
+
+- INTRODUCTION
+- RESEARCH QUESTIONS
+- DATASET DESCRIPTION
+- RESULTS AND INTERPRETATION
+- KEY FINDINGS AND CONCLUSION
+- REFERENCES 
+
+:::
+:::
+
+# INTRODUCTION AND RESEARCH QUESTIONS {.smaller}
+
+## INTRODUCTION
+
+:::: {.columns}
+
+::: {.column width="50%"}
+### Overview
+
+This report presents key findings from the analysis of chess player ratings for August and September 2025, focusing on player performance, rating changes, and trends.
+
+The study examines how changes in rating points affect overall player outcomes and explores potential differences in ratings between genders. By investigating these aspects, the analysis provides insights into player development, rating dynamics, and trends that may help forecast future performance.
+:::
+  
+::: {.column width="50%"}
+### Research Questions
+
+1. Do chess players' ratings improve or decline over time, and does this vary by player strength or activity level?
+
+2. Is there a gender gap in chess rating performance and improvement rates?
+
+3. Does federation size predict improvement success? Do smaller federations outperform larger ones in rating growth?
+
+:::
+::::
+::: {.aside}
+Data source: TidyTuesday FIDE Chess Ratings [@tidytuesday2025]  
+Presentation theme: mq-revealjs [@mqtheme2025]  
+:::
+
+
+
+# DATASET DESCRIPTION {.smaller}
+
+## DATASET DESCRIPTION {.smaller}
+:::: {.columns}
+The dataset consists of two files: **fide_ratings_august** and **fide_ratings_september**, obtained from <a href="#ref-tidytuesday2025">TidyTuesday</a>.  
+These datasets contain player ratings and additional information about individual chess players.
+
+
+::: {.column width="50%"}
+**Summary of August Ratings File :**
+
+```{r}
+cat(capture.output(summary(rating_august)), sep = "\n") # Summary of August file
+```
+
+:::
+  
+::: {.column width="50%"}
+**Summary of September Ratings File :**
+
+
+```{r}
+cat(capture.output(summary(rating_september)), sep = "\n") # Summary of September file
+```
+:::
+
+::::
+
+**Dataset after Merging and Column Transformation :**
+
+```{r, echo=FALSE}
+
+# Merging the August and September Files 
+rating_august <- rating_august %>%  # First arranging August file
+  arrange(desc(rating)) %>% 
+  distinct(id, .keep_all = TRUE)
+
+rating_september <- rating_september %>%  # Second arranging September file
+  arrange(desc(rating)) %>% 
+  distinct(id, .keep_all = TRUE)
+
+ratings_clean <- rating_august %>% # Cleaning and Transforming two tables into one
+  inner_join( # Joining with September file
+    rating_september %>% select(id, rating_sep = rating, games_sep = games),
+    by = "id"
+  ) %>%
+  mutate( # Mutating the columns 
+    Rating_Change = rating_sep - rating,
+    Games_Played  = games_sep,
+    Age           = 2025 - bday
+  ) %>%
+  select( # Selecting only needed columns for analysis
+    ID               = id,
+    Name             = name,
+    Federation       = fed,
+    Sex              = sex,
+    Birthday         = bday,
+    August_Rating    = rating,
+    August_Games     = games,
+    September_Rating = rating_sep,
+    September_Games  = games_sep,
+    Rating_Change,
+    Games_Played,
+    Age
+  )
+
+ratings_head <- head(ratings_clean, 5) # Taking only head of table
+
+ratings_head %>% # Creating table for better visualization
+  kable(caption = "Integrated Dataset of August and September Ratings", align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    font_size = 22
+  ) %>%
+  row_spec(0, extra_css = "border: 1px solid black; font-weight: bold;") %>%  
+  row_spec(1:nrow(ratings_head), extra_css = "border: 1px solid gray;") 
+
+```
+
+
+# RESULTS AND INTERPRETATION {.smaller}
+
+## RATING DISTRIBUTION (RQ1){.smaller}
+
+```{r, echo=FALSE, fig.align='center', fig.width=18, fig.height=8}
+
+# Moving to new variable the combined table for some graphs
+chess_data <- ratings_clean %>%
+  mutate(
+    rating_aug = August_Rating,
+    rating_sep = September_Rating
+  )
+
+# First plot about August ratings distribution
+p1 <- chess_data %>%
+  ggplot(aes(x = rating_aug)) +
+  geom_histogram(
+    aes(y = ..density..),
+    bins = 40, fill = "#9BB4C0", color = "white", alpha = 0.8
+  ) +
+  geom_density(color = "#4A6D7C", size = 1) +
+  geom_vline(aes(xintercept = median(rating_aug, na.rm = TRUE)),
+             color = "#4A6D7C", linetype = "dashed", linewidth = 0.8) +
+  annotate("text", x = median(chess_data$rating_aug, na.rm = TRUE),
+           y = 0.0008, label = paste("Median:", round(median(chess_data$rating_aug, na.rm = TRUE))),
+           hjust = -0.1, size = 3, color = "#2C3E50") +
+  labs(title = "August Ratings Distribution",
+       x = "Rating", y = "Density") +
+  scale_x_continuous(labels = comma) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+# Second plot about August ratings distribution
+p2 <- chess_data %>%
+  ggplot(aes(x = rating_sep)) +
+  geom_histogram(
+    aes(y = ..density..),
+    bins = 40, fill = "#703B3B", color = "white", alpha = 0.8
+  ) +
+  geom_density(color = "#B45858", size = 1) +
+  geom_vline(aes(xintercept = median(rating_sep, na.rm = TRUE)),
+             color = "#B45858", linetype = "dashed", linewidth = 0.8) +
+  annotate("text", x = median(chess_data$rating_sep, na.rm = TRUE),
+           y = 0.0008, label = paste("Median:", round(median(chess_data$rating_sep, na.rm = TRUE))),
+           hjust = -0.1, size = 3, color = "#2C3E50") +
+  labs(title = "September Ratings Distribution",
+       x = "Rating", y = "Density") +
+  scale_x_continuous(labels = comma) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+p1 + p2 # Combining two graphs in one line
+
+```
+::: {.aside}
+Rating distributions visualised using ggplot2 [@R-ggplot2] and patchwork [@R-patchwork].
+:::
+## GAMES VS. RATING CHANGE (RQ1)
+
+```{r, echo=FALSE, fig.align='center', fig.width=20, fig.height=9}
+
+# Prepare data with additional categories
+active_players <- ratings_clean %>%
+  filter(Games_Played > 0) %>%
+  mutate( # Mutating and creating categories
+    change_category = case_when(
+      Rating_Change > 20 ~ "Large Gain (>20)",
+      Rating_Change > 0 ~ "Small Gain (0-20)",
+      Rating_Change > -20 ~ "Small Loss (0-20)",
+      TRUE ~ "Large Loss (<-20)"
+    ),
+    change_category = factor(change_category, 
+                            levels = c("Large Gain (>20)", "Small Gain (0-20)",
+                                     "Small Loss (0-20)", "Large Loss (<-20)")),
+    # Identify high activity players
+    high_activity = Games_Played >= quantile(Games_Played, 0.75)
+  )
+
+# Calculate correlation and p-value
+cor_test <- cor.test(active_players$Games_Played, active_players$Rating_Change)
+cor_value <- cor_test$estimate
+p_value <- cor_test$p.value
+
+# Create enhanced plot with moderate complexity
+p <- ggplot(active_players, aes(x = Games_Played, y = Rating_Change)) +
+  geom_density_2d(color = "gray70", alpha = 0.4, size = 0.5) +
+  geom_point(aes(color = change_category, size = abs(Rating_Change)), 
+             alpha = 0.5) +
+  geom_point(data = filter(active_players, abs(Rating_Change) > 50),
+             aes(color = change_category), 
+             size = 4, shape = 1, stroke = 1.5) +
+  geom_smooth(method = "lm", color = "#2c3e50", fill = "#3498db",
+              alpha = 0.2, size = 1.3, linetype = "solid") +
+  geom_smooth(method = "loess", color = "#e74c3c", 
+              alpha = 0, size = 0.8, linetype = "dashed", se = FALSE) +
+  geom_hline(yintercept = 0, linetype = "solid", color = "#44444E", 
+             alpha = 0.6, size = 0.7) +
+  geom_vline(xintercept = median(active_players$Games_Played), 
+             linetype = "dotted", color = "#44444E", alpha = 0.5) +
+  labs(
+    title = "Relationship Between Playing Frequency and Rating Performance",
+    subtitle = bquote(
+      "Pearson correlation:" ~ r == .(sprintf("%.3f", cor_value)) ~ 
+      "(" * .(ifelse(p_value < 0.001, "p < 0.001", 
+                    paste0("p = ", round(p_value, 3)))) * ")"
+    ),
+    x = "Number of Games Played (August - September)",
+    y = "Rating Change (points)",
+    color = "Performance\nCategory",
+    size = "Magnitude of\nChange",
+    caption = "Note: Solid line = linear trend, Dashed line = loess smooth\nCircled points indicate extreme rating changes (>50 points)"
+  ) +
+  scale_color_manual(
+    values = c("Large Gain (>20)" = "#9BB4C0",
+               "Small Gain (0-20)" = "#758A93", 
+               "Small Loss (0-20)" = "#E2B59A",
+               "Large Loss (<-20)" = "#B77466")
+  ) +
+  scale_size_continuous(range = c(1, 5), guide = "none") +
+  scale_x_continuous(breaks = seq(0, max(active_players$Games_Played), by = 5),
+                     expand = expansion(mult = c(0.02, 0.05))) +
+  scale_y_continuous(breaks = seq(-100, 100, by = 20),
+                     expand = expansion(mult = c(0.05, 0.05))) +
+  
+  # Creating separete theme for this graph
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold",color = "#44444E", size = 14, hjust = 0.5,
+                             margin = margin(b = 5)),
+    plot.subtitle = element_text(hjust = 0.5, color = "#44444E", size = 10,
+                                margin = margin(b = 15)),
+    plot.caption = element_text(hjust = 0, color = "#44444E", size = 6,
+                               margin = margin(t = 10)),
+    legend.position = "right",
+    legend.title = element_text(face = "bold", size = 10),
+    legend.text = element_text(size = 10),
+    legend.background = element_rect(fill = "white", color = "#44444E"),
+    legend.key = element_rect(fill = "white", color = NA),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(color = "#44444E", size = 0.3),
+    panel.border = element_rect(fill = NA, color = "#44444E", size = 0.5),
+    axis.title = element_text(face = "bold", size = 12),
+    axis.text = element_text(color = "#44444E"),
+    axis.text.y = element_text(size = 8, margin = margin(r = 30))
+  )
+
+print(p) # Display the plot
+```
+
+::: {.aside}
+Scatter plot and trends created with ggplot2 [@R-ggplot2]; correlation calculated via base R.
+:::
+
+## GENDER ANALYSIS: OVERVIEW (RQ2) {.smaller}
+
+**Across August and September 2025:**
+
+```{r, echo=FALSE, fig.align='center', fig.width=12, fig.height=6}
+
+# Creating new variable for filtering based on the Male and Female
+ratings_long <- ratings_clean %>%
+  filter(!is.na(Sex)) %>%
+  mutate(Gender = ifelse(Sex == "M", "Male", "Female")) %>%
+  select(Gender, August_Rating, September_Rating) %>%
+  pivot_longer(c(August_Rating, September_Rating), 
+               names_to = "Month",  # Changed from "Mont"
+               values_to = "Rating") %>%
+  mutate(Month = ifelse(Month == "August_Rating", "August", "September"))
+
+# Summaries for gender 
+gender_summary <- ratings_long %>%
+  group_by(Gender) %>%
+  summarise(
+    n = n(),
+    mean_rating = mean(Rating, na.rm = TRUE),
+    median_rating = median(Rating, na.rm = TRUE),
+    sd_rating = sd(Rating, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(Gender))
+
+# First graph for distribution by Gender
+p1 <- ratings_long %>%
+  filter(!is.na(Gender)) %>%
+  ggplot(aes(x = Gender, y = Rating, fill = Gender)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(width = 0.2, alpha = 0.5, outlier.alpha = 0.2) +
+  labs(
+    title = "Rating Distribution by Gender",
+    x = "", y = "Rating"
+  ) +
+  scale_fill_manual(values = c("Male" = "#9BB4C0", "Female" = "#703B3B")) +
+  theme(legend.position = "none")
+
+# Second graph players counts by Gender
+p2 <- ratings_long %>%
+  filter(!is.na(Gender)) %>%
+  ggplot(aes(x = Gender, fill = Gender)) +
+  geom_bar(alpha = 0.7, color = "white") +
+  labs(
+    title = "Player Count by Gender",
+    x = "", y = "Count"
+  ) +
+  scale_y_continuous(labels = comma) +
+  scale_fill_manual(values = c("Male" = "#9BB4C0", "Female" = "#703B3B")) +
+  theme(legend.position = "none")
+
+p1 + p2 # Combine the plots in one line
+```
+
+**Key Stats:** 
+Male: `r format(gender_summary$n[gender_summary$Gender == "Male"], big.mark = ",")` | 
+Female: `r format(gender_summary$n[gender_summary$Gender == "Female"], big.mark = ",")` | 
+Avg rating gap: `r round(abs(gender_summary$mean_rating[gender_summary$Gender == "Male"] - 
+                             gender_summary$mean_rating[gender_summary$Gender == "Female"]), 0)` points
+
+
+## GENDER GAP ACROSS RATING LEVELS (RQ2) {.smaller}
+
+```{r, echo=FALSE, fig.align='center'}
+
+# Creating new variable to divide ratings 
+chess_data <- ratings_clean %>%
+  filter(!is.na(Sex)) %>%
+  mutate(
+    sex_aug = Sex,
+    rating_change = Rating_Change,
+    rating_category = cut(
+      August_Rating,
+      breaks = c(-Inf, 1400, 1800, 2200, Inf),
+      labels = c("Under 1400", "1400–1800", "1800–2200", "2200+")
+    )
+  )
+# t-test
+gender_test <- t.test(rating_change ~ sex_aug, 
+                      data = filter(chess_data, !is.na(sex_aug)))
+
+# Summaries by rating category
+gender_category <- chess_data %>%
+  filter(!is.na(sex_aug)) %>%
+  group_by(rating_category, sex_aug) %>%
+  summarise(
+    n = n(),
+    mean_change = mean(rating_change, na.rm = TRUE),
+    se = sd(rating_change, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+ggplot(gender_category, aes(x = rating_category, y = mean_change, 
+                            fill = sex_aug, group = sex_aug)) +
+  geom_col(position = position_dodge(width = 0.8), alpha = 0.8) +
+  geom_errorbar(aes(ymin = mean_change - se, ymax = mean_change + se),
+                position = position_dodge(width = 0.8), width = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Mean Rating Change by Gender and Skill Level",
+    subtitle = paste0(
+      "t-test p-value: ",
+      ifelse(gender_test$p.value < 0.001, "< 0.001", round(gender_test$p.value, 3))
+    ),
+    x = "Rating Category",
+    y = "Mean Rating Change (points)",
+    fill = "Gender"
+  ) +
+  scale_fill_manual(values = c("M" = "#9BB4C0", "F" = "#703B3B"),
+                    labels = c("M" = "Male", "F" = "Female")) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 15, hjust = 1),
+    legend.position = "top",
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+```
+## GENDER & ACTIVITY PATTERNS (RQ2) {.smaller}
+
+```{r, echo=FALSE, fig.align='center', fig.width=12, fig.height=6}
+
+# Creating and mutating for new graph 
+chess_data <- ratings_clean %>%
+  mutate(
+    sex_aug = Sex,
+    games_played = Games_Played,
+    active_player = ifelse(Games_Played > 0, "Active", "Inactive")
+  ) %>%
+  filter(!is.na(sex_aug))
+
+# Summary for graphs
+gender_activity <- chess_data %>%
+  filter(games_played > 0) %>%
+  group_by(sex_aug) %>%
+  summarise(
+    n_active = n(),
+    mean_games = mean(games_played, na.rm = TRUE),
+    median_games = median(games_played, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# First graph for activity rate by gender
+p1 <- chess_data %>%
+  count(sex_aug, active_player) %>%
+  group_by(sex_aug) %>%
+  mutate(pct = 100 * n / sum(n)) %>%
+  ggplot(aes(x = sex_aug, y = pct, fill = active_player)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_text(
+    aes(label = paste0(round(pct, 1), "%")),
+    position = position_dodge(width = 0.9),
+    vjust = -0.4, size = 3
+  ) +
+  labs(
+    title = "Activity Rate by Gender",
+    x = "", y = "Percentage (%)",
+    fill = "Status"
+  ) +
+  scale_fill_manual(values = c("Active" = "#A8BBA3", "Inactive" = "#95a5a6")) +
+  ylim(0, 100) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+
+# Second graph about games played distribution
+p2 <- chess_data %>%
+  filter(games_played > 0) %>%
+  ggplot(aes(x = sex_aug, y = games_played, fill = sex_aug)) +
+  geom_violin(alpha = 0.7, draw_quantiles = c(0.5)) +
+  geom_boxplot(width = 0.2, alpha = 0.5, outlier.alpha = 0.2) +
+  labs(
+    title = "Games Played (Active Players)",
+    x = "", y = "Number of Games"
+  ) +
+  scale_fill_manual(values = c("M" = "#9BB4C0", "F" = "#703B3B")) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+
+p1 + p2 # Combing two graph in one line
+```
+
+## FEDERATION CLUSTERS (RQ3)
+
+```{r, echo=FALSE, fig.width=15, fig.height=6, dpi=120}
+
+# Creating performance clusters
+fed_clusters <- ratings_clean %>%
+  group_by(Federation) %>%
+  filter(n() >= 25) %>%
+  summarise(
+    n_players = n(),
+    mean_rating = mean(August_Rating, na.rm = TRUE),
+    mean_change = mean(Rating_Change, na.rm = TRUE),
+    sd_change = sd(Rating_Change, na.rm = TRUE),
+    active_pct = 100 * mean(Games_Played > 0, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    performance_cluster = case_when(
+      mean_change > 5  ~ "High Improvers",
+      mean_change > -5 ~ "Stable",
+      TRUE             ~ "Declining"
+    ),
+    size_category = case_when(
+      n_players >= 100 ~ "Large (100+)",
+      n_players >= 50  ~ "Medium (50-99)",
+      TRUE             ~ "Small (25-49)"
+    )
+  )
+
+# Creating static ggplot object with multi-line hover text because Federations did not fit into basic graph
+p <- ggplot(fed_clusters, aes(x = mean_rating, y = mean_change,
+                              text = paste0(
+                                "Federation: ", Federation, "<br>",
+                                "Players: ", n_players, "<br>",
+                                "Performance: ", performance_cluster, "<br>",
+                                "Size: ", size_category, "<br>",
+                                "Avg Rating: ", round(mean_rating,1), "<br>",
+                                "Mean Change: ", round(mean_change,1)
+                              ))) +
+  geom_point(aes(size = n_players, color = performance_cluster, shape = size_category), alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_vline(xintercept = median(fed_clusters$mean_rating, na.rm = TRUE), 
+             linetype = "dashed", color = "blue", alpha = 0.5) +
+  labs(
+    title = "Federation Performance Clusters",
+    subtitle = "Hover on points to see details",
+    x = "Average Rating",
+    y = "Mean Rating Change",
+    size = "Players",
+    color = "Performance",
+    shape = "Federation Size"
+  ) +
+  scale_color_manual(values = c(
+    "High Improvers" = "#B0CE88", 
+    "Stable"         = "#80A1BA",
+    "Declining"      = "#B77466"
+  )) +
+  scale_size_continuous(range = c(3, 12)) +
+  theme_minimal(base_size = 13)
+
+
+ggplotly(p, tooltip = "text") # Making it interactive
+```
+
+::: {.aside}
+Interactive federation clusters powered by plotly [@R-plotly] on top of ggplot2 [@R-ggplot2].
+:::
+
+# KEY FINDINGS AND CONCLUSION {.smaller}
+
+## KEY FINDINGS AND CONCLUSION
+
+:::: {.columns}
+::: {.column width="50%"}
+**Activity Impact**
+
+- Active players show greater rating volatility
+- Inactive players maintain stable ratings
+- Playing regularly introduces both risk and opportunity
+
+
+**Rating Level Patterns**
+
+- Elite players (2500+) show smallest fluctuations
+- Lower-rated players experience larger swings
+- Rating stability increases with strength
+
+
+:::
+::: {.column width="50%"}
+**Games vs. Improvement**
+
+- Weak correlation between games and rating gain
+- Quality of opponents matters more than quantity
+- Some players improve significantly with few games
+
+**Federations Performance**
+
+- Not all Federations with more player have good average ratings
+- There are some federations with small players but high ratings 
+:::
+::::
+
+# REFERENCES {.smaller}
+
+## REFERENCES {.smaller}
+
+::: {#refs}
+:::
+
+
+
